@@ -1,6 +1,6 @@
 # DiplomacyMapGenerator
 
-Map Generation for Diplomacy Board Game
+Random Map Generation for Diplomacy Board Game
 
 * Customize the number of players, number of starting supply centers
 * Customize terrain generation with preset filters for adjusting perlin noise
