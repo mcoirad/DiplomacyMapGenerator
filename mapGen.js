@@ -29,6 +29,7 @@ let minWaterDistance = 100;
 let noiseSeedInput;
 let helpIsolatedPlayerRadio;
 let modErosionCheck;
+let buffNumCentralPlayers = 1;
 
 function setup() {
   createCanvas(800, 800);
@@ -171,6 +172,15 @@ function setup() {
 
   // Choose a default option.
   helpIsolatedPlayerRadio.selected("Yes");
+  
+  let buffCentralPlayersLabel = createSpan("Buff X Most Central Players (adds Home SC): 1 (0-4)");
+  buffCentralPlayersLabel.position(10, height + 300);
+  let buffCentralPlayersSelect = createSlider(0, 4, 1, 1);
+  buffCentralPlayersSelect.position(400, height + 300);
+  buffCentralPlayersSelect.changed(() => {
+    buffNumCentralPlayers = buffCentralPlayersSelect.value();
+    buffCentralPlayersLabel.html(`Buff X Most Central Players : ${buffNumCentralPlayers}`);
+  });
 
   let modErosionLabel = createSpan("Erosion");
   modErosionLabel.position(450, height + 220);
@@ -237,7 +247,6 @@ function generateNoise() {
   generateTerritories();
   generateWaterTerritories();
   supplyCenters = generateSupplyCenters();
-  let centralPlayer = mostCentralPlayer();
   if (helpIsolatedPlayerRadio.value() == "Yes") {
     helpExpandPlayer(leastExpansivePlayer());
   }
@@ -682,6 +691,23 @@ function generateSupplyCenters() {
     }
   }
 
+  // Add one additional supply center to the most central city groups
+  const centralGroups = mostCentralPlayers(cityGroups.length); // Get all groups ranked by centrality
+  for (let i = 0; i < buffNumCentralPlayers; i++) {
+    let groupIndex = centralGroups[i];
+    let group = cityGroups[groupIndex];
+
+    // Select one more random city from the group that's not already a supply center
+    let additionalCity = null;
+    while (!additionalCity) {
+      let randomCity = group[floor(random(group.length))];
+      if (!supplyCenters.includes(randomCity)) {
+        additionalCity = randomCity;
+        supplyCenters.push(additionalCity);
+      }
+    }
+  }
+
   // Identify cities not in any group
   let groupedCities = new Set(cityGroups.flat());
   let ungroupedCities = cities.filter((city) => !groupedCities.has(city));
@@ -700,7 +726,7 @@ function generateSupplyCenters() {
   return supplyCenters;
 }
 
-function mostCentralPlayer() {
+function mostCentralPlayers(numToReturn = 1) {
   let groupAverages = [];
 
   for (let i = 0; i < cityGroups.length; i++) {
@@ -725,11 +751,13 @@ function mostCentralPlayer() {
 
     let avgDistance = totalDistance / cityCount;
     groupAverages.push({ groupIndex: i, avgDistance });
-    console.log(`City Group ${i} - Average Distance: ${avgDistance}`);
   }
 
+  // Sort groups by average distance in ascending order
   groupAverages.sort((a, b) => a.avgDistance - b.avgDistance);
-  return groupAverages[0].groupIndex; // Return the most central player’s group index
+
+  // Return the indices of the top 'numToReturn' most central players
+  return groupAverages.slice(0, numToReturn).map(group => group.groupIndex);
 }
 
 function leastExpansivePlayer() {
