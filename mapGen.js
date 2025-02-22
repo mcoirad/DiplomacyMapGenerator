@@ -24,6 +24,8 @@ let startingSupplyNum = 3;
 let supplyCenters = [];
 let selectedUngrouped = [];
 
+let imageSourceValues = null;
+
 let minWaterDistance = 100;
 
 let noiseSeedInput;
@@ -55,6 +57,7 @@ function setup() {
   gradientSelect.option("sinusoidal");
   gradientSelect.option("ridge");
   gradientSelect.option("verysinusoidal");
+  gradientSelect.option("uploadedimage");
   gradientSelect.option("none");
   gradientSelect.changed(() => {
     gradientType = gradientSelect.value();
@@ -173,9 +176,9 @@ function setup() {
   // Choose a default option.
   helpIsolatedPlayerRadio.selected("Yes");
   
-  let buffCentralPlayersLabel = createSpan("Buff X Most Central Players (adds Home SC): 1 (0-4)");
+  let buffCentralPlayersLabel = createSpan("Buff X Most Central Players (adds Home SC): 1 (0-6)");
   buffCentralPlayersLabel.position(10, height + 300);
-  let buffCentralPlayersSelect = createSlider(0, 4, 1, 1);
+  let buffCentralPlayersSelect = createSlider(0, 6, 1, 1);
   buffCentralPlayersSelect.position(400, height + 300);
   buffCentralPlayersSelect.changed(() => {
     buffNumCentralPlayers = buffCentralPlayersSelect.value();
@@ -186,6 +189,11 @@ function setup() {
   modErosionLabel.position(450, height + 220);
   modErosionCheck = createCheckbox();
   modErosionCheck.position(500, height + 220);
+  
+  let imageInputLabel = createSpan("Image input (can be used as Noise Bias)");
+  imageInputLabel.position(450, height + 250);
+  imageInput = createFileInput(handleImageUpload);
+  imageInput.position(450, height + 270);
 
   generateNoise();
 }
@@ -321,6 +329,9 @@ function getGradientFactor(x, y) {
 
   }else if (gradientType === "none") {
     gradientValue = 0;
+  } else if (gradientType === "uploadedimage"){
+    gradientValue = imageSourceValues[x][y];
+    return gradientValue;
   }
 
   if (modErosionCheck.checked()) {
@@ -399,6 +410,8 @@ function generateTerritories() {
     });
   });
 
+  let cityConnections = new Set(); // Using a Set to avoid duplicates
+
   function weight(x1, y1, x2, y2) {
     let horiz = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
     let vert = heightMap[x2][y2] - heightMap[x1][y1];
@@ -451,7 +464,8 @@ function generateTerritories() {
     for (let y = 0; y < height; y++) {
       if (territories[x][y] !== null) {
         let cityIndex = territories[x][y];
-        let groupIndex = cityToGroup.get(cities[cityIndex]);
+        let city = cities[cityIndex];
+        let groupIndex = cityToGroup.get(city);
         let isBorder = false;
         let neighbors = [
           { dx: -1, dy: 0 },
@@ -468,8 +482,16 @@ function generateTerritories() {
               territories[nx][ny] !== null &&
               territories[nx][ny] !== cityIndex
             ) {
+              let connectedCityIndex = territories[nx][ny];
+              let connectedCity = cities[connectedCityIndex];
+              let connection = JSON.stringify([
+                [city.x, city.y],
+                [connectedCity.x, connectedCity.y],
+              ]);
+
+              // Store as string to avoid duplicates
+              cityConnections.add(connection);
               isBorder = true;
-              break;
             }
           }
         }
@@ -483,7 +505,15 @@ function generateTerritories() {
     }
   }
   noiseCanvas.updatePixels();
+
+  // Convert cityConnections back to a list of coordinate pairs
+  cityConnections = Array.from(cityConnections).map((connection) =>
+    JSON.parse(connection)
+  );
+
+  console.log("City Connections:", cityConnections);
 }
+
 
 function generateWaterTerritories() {
   waterTerritories = Array.from(Array(width), () =>
@@ -724,6 +754,42 @@ function generateSupplyCenters() {
   }
 
   return supplyCenters;
+}
+
+function handleImageUpload(file) {
+  if (file.type !== 'image') {
+    console.error('Uploaded file is not an image.');
+    return null;
+  }
+
+  // Load and process the image
+  loadImage(file.data, (img) => {
+    // Create a new graphics object with exact 800x800 dimensions
+    let processedCanvas = createGraphics(800, 800);
+    processedCanvas.image(img, 0, 0, 800, 800); // Stretch to 800x800
+
+    // Convert to grayscale and store in a 2D array
+    let grayscaleArray = [];
+    processedCanvas.loadPixels();
+
+    for (let x = 0; x < 800; x++) {
+      grayscaleArray[x] = [];
+      for (let y = 0; y < 800; y++) {
+        let index = (x + y * 800) * 4;
+        let r = processedCanvas.pixels[index];
+        let g = processedCanvas.pixels[index + 1];
+        let b = processedCanvas.pixels[index + 2];
+        let gray = (r + g + b) / (3 * 255); // Normalize to range 0-1
+        grayscaleArray[x][y] = gray;
+      }
+    }
+
+    console.log('Grayscale array generated:', grayscaleArray);
+    imageSourceValues = grayscaleArray; // Return the 2D grayscale array
+  }, (err) => {
+    console.error('Failed to load image:', err);
+    imageSourceValues = null;
+  });
 }
 
 function mostCentralPlayers(numToReturn = 1) {
