@@ -32,6 +32,7 @@ let noiseSeedInput;
 let helpIsolatedPlayerRadio;
 let modErosionCheck = true;
 let buffNumCentralPlayers = 1;
+let ensureWaterConnectedCheck = false;
 
 let mapSize = 1000;
 
@@ -210,6 +211,9 @@ function setup() {
   imageInputLabel.position(450, height + 250);
   imageInput = createFileInput(handleImageUpload);
   imageInput.position(450, height + 270);
+  
+  ensureWaterConnectedCheck = createCheckbox("Draw Rivers/Ensure all water areas connected (can take awhile)", false);
+  ensureWaterConnectedCheck.position(10, height + 330);
 
   generateNoise();
 }
@@ -241,6 +245,19 @@ function generateNoise() {
     }
   }
 
+  doMapGeneration();
+  let numIterations = 0;
+  while (waterGroups.length > 1 && numIterations < 10 && ensureWaterConnectedCheck.checked()){
+    let closestCities = findClosestCitiesBetweenGroups(waterGroups[0], waterGroups[1]);
+  console.log("Drawing a river!");
+  drawRiver(closestCities[0][0], closestCities[0][1], closestCities[1][0], closestCities[1][1], 3);
+  doMapGeneration();
+    numIterations += 1;
+  }
+}
+
+function doMapGeneration(){
+    //drawRiver(250, 120, 740, 600, 2);
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
       let current = noiseGrid[x][y];
@@ -259,14 +276,14 @@ function generateNoise() {
       }
 
       let col = isBorder
-        ? color(0)
+        ? color(1)
         : current
         ? color(50, 50, 50)
         : color(32, 159, 201);
       noiseCanvas.set(x, y, col);
     }
   }
-  drawRiver(200, 200, 600, 600, 20);
+  //drawRiver(200, 200, 600, 600);
   noiseCanvas.updatePixels();
   placeCities();
   placeWaterCities();
@@ -280,7 +297,6 @@ function generateNoise() {
   }
   assignCityNames();
   waterGroups = getWaterRegionGroups();
-  console.log(waterGroups);
 }
 
 function getNoise(x, y) {
@@ -932,15 +948,14 @@ function helpExpandPlayer(leastExpansiveIndex) {
 }
 
 function addSig() {
-  let xOffset = width - 40; // Right-bottom corner
+  let xOffset = width - 40; 
   let yOffset = height - 15;
-  let size = 3; // Scale down the signature
+  let size = 3; 
 
   stroke(0);
   strokeWeight(2);
   noFill();
 
-  // Draw "D" (corrected orientation)
   beginShape();
   vertex(xOffset + 5, yOffset);
   vertex(xOffset + 5, yOffset - size * 3);
@@ -951,7 +966,6 @@ function addSig() {
   vertex(xOffset + 5, yOffset);
   endShape();
 
-  // Draw "m"
   beginShape();
   vertex(xOffset + size * 5, yOffset);
   vertex(xOffset + size * 5, yOffset - size * 3);
@@ -960,7 +974,6 @@ function addSig() {
   vertex(xOffset + size * 7, yOffset);
   endShape();
 
-  // Draw second "m"
   beginShape();
   vertex(xOffset + size * 8, yOffset);
   vertex(xOffset + size * 8, yOffset - size * 3);
@@ -1060,45 +1073,91 @@ function getWaterRegionGroups() {
   return waterRegionGroups;
 }
 
-function drawRiver(x1, y1, x2, y2, maxDistanceAffected) {
-  function getDistanceToLine(px, py, ax, ay, bx, by) {
-    // Calculate perpendicular distance from (px, py) to line segment (ax, ay) - (bx, by)
-    let A = px - ax;
-    let B = py - ay;
-    let C = bx - ax;
-    let D = by - ay;
+function findClosestCitiesBetweenGroups(groupA, groupB) {
+  let minDistance = Infinity;
+  let closestPair = null;
 
-    let dot = A * C + B * D;
-    let lenSq = C * C + D * D;
-    let param = lenSq !== 0 ? dot / lenSq : -1;
-
-    let closestX, closestY;
-    if (param < 0) {
-      closestX = ax;
-      closestY = ay;
-    } else if (param > 1) {
-      closestX = bx;
-      closestY = by;
-    } else {
-      closestX = ax + param * C;
-      closestY = ay + param * D;
+  for (let cityA of groupA) {
+    for (let cityB of groupB) {
+      let distance = dist(cityA[0], cityA[1], cityB[0], cityB[1]);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPair = [cityA, cityB];
+      }
     }
-
-    let dx = px - closestX;
-    let dy = py - closestY;
-    return Math.sqrt(dx * dx + dy * dy);
   }
 
-  // Iterate over noise grid and modify values
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      let distance = getDistanceToLine(x, y, x1, y1, x2, y2);
+  return closestPair;
+}
 
-      if (distance === 0) {
-        noiseGrid[x][y] = 0; // Set exact river path to water (0)
-      } else if (distance <= maxDistanceAffected) {
-        let falloff = distance / maxDistanceAffected; // Percentage effect
-        noiseGrid[x][y] *= falloff; // Reduce noise based on distance
+
+function drawRiver(startX, startY, endX, endY, maxDistanceAffected=0) {
+  let queue = new PriorityQueue({
+    comparator: (a, b) => a.score - b.score, // Min-heap, lowest score first
+  });
+
+  let visited = new Set();
+
+  function weight(x1, y1, x2, y2) {
+    let horiz = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    let vert = heightMap[x2][y2] - heightMap[x1][y1];
+    if (vert > 0) vert *= 1000; // Rivers prefer downhill paths
+    let diff = 1 + 0.25 * Math.pow(vert / horiz, 2);
+    return horiz * diff;
+  }
+
+  queue.queue({ x: startX, y: startY, score: 0, path: [] });
+
+  while (queue.length > 0) {
+    let { x, y, score, path } = queue.dequeue();
+    let key = `${x},${y}`;
+
+    if (visited.has(key)) continue;
+    visited.add(key);
+
+    path.push([x, y]); // Keep track of the river path
+
+    if (x === endX && y === endY) {
+      // We've reached the endpoint, now apply soft brush river effect
+      for (let [px, py] of path) {
+        noiseGrid[px][py] = 0.01; // Set exact river path to water (0.01)
+
+        // **Soft brush effect using Perlin noise & Gaussian decay**
+        for (let dx = -maxDistanceAffected; dx <= maxDistanceAffected; dx++) {
+          for (let dy = -maxDistanceAffected; dy <= maxDistanceAffected; dy++) {
+            let nx = px + dx;
+            let ny = py + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              let distance = Math.sqrt(dx * dx + dy * dy);
+              
+              if (distance <= maxDistanceAffected) {
+                let falloff = Math.exp(-Math.pow(distance / maxDistanceAffected, 2)); // **Gaussian decay**
+                let terrainFactor = noise(nx * 0.02, ny * 0.02) * 0.5 + 0.5; // **Adds terrain blending**
+                
+                noiseGrid[nx][ny] *= falloff * terrainFactor ; // Apply a **non-linear** soft effect
+              }
+            }
+          }
+        }
+      }
+      return; // Exit once the river is created
+    }
+
+    let neighbors = [
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+    ];
+
+    for (let { dx, dy } of neighbors) {
+      let nx = x + dx;
+      let ny = y + dy;
+      let nKey = `${nx},${ny}`;
+
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height && !visited.has(nKey)) {
+        let newScore = score + weight(x, y, nx, ny);
+        queue.queue({ x: nx, y: ny, score: newScore, path: [...path] });
       }
     }
   }
@@ -1134,7 +1193,7 @@ function drawLandWaterConnections() {
 function draw() {
   background(230);
   image(noiseCanvas, 0, 0);
-  drawLandWaterConnections();
+  //drawLandWaterConnections();
 
   fill(0, 0, 0);
   noStroke();
