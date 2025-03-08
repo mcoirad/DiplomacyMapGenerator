@@ -30,12 +30,25 @@ let minWaterDistance = 100;
 
 let noiseSeedInput;
 let helpIsolatedPlayerRadio;
-let modErosionCheck;
+let modErosionCheck = true;
 let buffNumCentralPlayers = 1;
 
+let mapSize = 1000;
+
+let cityNamesDict = {}; 
+
+
+  let cityConnections = new Set(); // Using a Set to avoid duplicates
+
+  let waterCityConnections = new Set(); // Tracks water-to-water connections
+  let landWaterCityConnections = new Set(); // Tracks water-to-land connections
+
+let waterGroups = [];
 function setup() {
-  createCanvas(800, 800);
-  noiseCanvas = createGraphics(width, height);
+  
+  createCanvas(mapSize, mapSize);
+    
+  noiseCanvas = createGraphics(mapSize, mapSize);
 
   let btn = createButton("Regenerate Map");
   btn.mousePressed(generateNoise);
@@ -45,6 +58,11 @@ function setup() {
   noiseSeedLabel.position(150, height + 10);
   noiseSeedInput = createInput("12345");
   noiseSeedInput.position(250, height + 10);
+  
+  let mapSizeLabel = createSpan("Map Size:");
+  mapSizeLabel.position(450, height + 10);
+  mapSizeInput = createInput("800");
+  mapSizeInput.position(550, height + 10);
 
   let gradientSelectLabel = createSpan("Noise Bias:");
   gradientSelectLabel.position(10, height + 40);
@@ -185,9 +203,7 @@ function setup() {
     buffCentralPlayersLabel.html(`Buff X Most Central Players : ${buffNumCentralPlayers}`);
   });
 
-  let modErosionLabel = createSpan("Erosion");
-  modErosionLabel.position(450, height + 220);
-  modErosionCheck = createCheckbox();
+  modErosionCheck = createCheckbox("Erosion", true);
   modErosionCheck.position(500, height + 220);
   
   let imageInputLabel = createSpan("Image input (can be used as Noise Bias)");
@@ -199,6 +215,8 @@ function setup() {
 }
 
 function generateNoise() {
+  createCanvas(parseInt(mapSizeInput.value()), parseInt(mapSizeInput.value()));
+  noiseCanvas = createGraphics(width, height);
   clear();
   noiseSeedValue = noiseSeedInput.value();
   if (noiseSeedValue == "") {
@@ -209,6 +227,7 @@ function generateNoise() {
   randomSeed(noiseSeedValue);
   noiseCanvas.loadPixels();
   noiseGrid = [];
+
 
   for (let x = 0; x < width; x++) {
     noiseGrid[x] = [];
@@ -247,6 +266,7 @@ function generateNoise() {
       noiseCanvas.set(x, y, col);
     }
   }
+  drawRiver(200, 200, 600, 600, 20);
   noiseCanvas.updatePixels();
   placeCities();
   placeWaterCities();
@@ -258,6 +278,9 @@ function generateNoise() {
   if (helpIsolatedPlayerRadio.value() == "Yes") {
     helpExpandPlayer(leastExpansivePlayer());
   }
+  assignCityNames();
+  waterGroups = getWaterRegionGroups();
+  console.log(waterGroups);
 }
 
 function getNoise(x, y) {
@@ -410,7 +433,7 @@ function generateTerritories() {
     });
   });
 
-  let cityConnections = new Set(); // Using a Set to avoid duplicates
+  cityConnections = new Set(); // Using a Set to avoid duplicates
 
   function weight(x1, y1, x2, y2) {
     let horiz = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
@@ -516,10 +539,11 @@ function generateTerritories() {
 
 
 function generateWaterTerritories() {
-  waterTerritories = Array.from(Array(width), () =>
-    new Array(height).fill(null)
-  );
+  waterTerritories = Array.from(Array(width), () => new Array(height).fill(null));
   let queue = [];
+  
+  waterCityConnections = new Set(); // Tracks water-to-water connections
+  landWaterCityConnections = new Set(); // Tracks water-to-land connections
 
   for (let i = 0; i < waterCities.length; i++) {
     let city = waterCities[i];
@@ -558,7 +582,9 @@ function generateWaterTerritories() {
     for (let y = 0; y < height; y++) {
       if (waterTerritories[x][y] !== null) {
         let cityIndex = waterTerritories[x][y];
-        let isBorder = false;
+        let city = waterCities[cityIndex];
+        let isWaterBorder = false;
+        let isLandWaterBorder = false;
         let neighbors = [
           { dx: -1, dy: 0 },
           { dx: 1, dy: 0 },
@@ -570,29 +596,44 @@ function generateWaterTerritories() {
           let nx = x + dx;
           let ny = y + dy;
           if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            if (
-              waterTerritories[nx][ny] !== null &&
-              waterTerritories[nx][ny] !== waterTerritories[x][y]
-            ) {
-              isBorder = true;
-              break;
+            let neighborCityIndex = waterTerritories[nx][ny];
+            let neighborLandCityIndex = territories[nx][ny];
+
+            if (neighborCityIndex !== null && neighborCityIndex !== cityIndex) {
+              // Water-to-water connection
+              let connectedCity = waterCities[neighborCityIndex];
+              let connection = JSON.stringify([[city.x, city.y], [connectedCity.x, connectedCity.y]]);
+              waterCityConnections.add(connection);
+              isWaterBorder = true;
+            } else if (neighborLandCityIndex !== null && noiseGrid[nx][ny] > waterLevel) {
+              // Water-to-land connection
+              let landCity = cities[neighborLandCityIndex];
+              let connection = JSON.stringify([[city.x, city.y], [landCity.x, landCity.y]]);
+              landWaterCityConnections.add(connection);
+              isLandWaterBorder = true;
             }
           }
         }
-        let pixelColor = noiseCanvas.get(x, y); // Returns an array [r, g, b, a]
-        if (isBorder) {
-          noiseCanvas.set(x, y, color(128)); // Gray border
-        } else if (
-          pixelColor[0] != 0 ||
-          pixelColor[1] != 0 ||
-          pixelColor[2] != 0
-        ) {
-          noiseCanvas.set(x, y, color(32, 159, 201)); // if not black, color as water
+
+        let pixelColor = noiseCanvas.get(x, y);
+        if (isWaterBorder) {
+          noiseCanvas.set(x, y, color(128)); // Gray for water-to-water borders
+        } else if (isLandWaterBorder) {
+          noiseCanvas.set(x, y, color(0)); // Keep water-to-land borders black
+        } else if (pixelColor[0] != 0 || pixelColor[1] != 0 || pixelColor[2] != 0) {
+          noiseCanvas.set(x, y, color(32, 159, 201)); // Water color
         }
       }
     }
   }
   noiseCanvas.updatePixels();
+
+  // Convert sets back to lists of coordinate pairs
+  waterCityConnections = Array.from(waterCityConnections).map((connection) => JSON.parse(connection));
+  landWaterCityConnections = Array.from(landWaterCityConnections).map((connection) => JSON.parse(connection));
+
+  console.log("Water City Connections:", waterCityConnections);
+  console.log("Land-Water City Connections:", landWaterCityConnections);
 }
 
 function assignTerritoryColorsOld() {
@@ -929,8 +970,171 @@ function addSig() {
   endShape();
 }
 
+
+function assignCityNames() {
+  let usedNames = new Set(); // Store used names to prevent duplicates
+  cityNamesDict = {}; // Reset dictionary
+
+  for (let city of cities) {
+    let name;
+    do {
+      name = getRandomRegionName(); // Generate a random name
+    } while (usedNames.has(name)); // Ensure uniqueness
+
+    usedNames.add(name);
+    cityNamesDict[`${city.x},${city.y}`] = name; // Store name in dictionary
+  }
+}
+
+function drawCityNames() {
+  
+  let padding = 10;
+
+  for (let city of cities) {
+    let cityKey = `${city.x},${city.y}`;
+    let cityName = cityNamesDict[cityKey];
+
+    if (cityName) {
+      let textX = city.x;
+      let textY = city.y + 10;
+
+      // Adjust position if near the edges
+      if (textX < padding) textX = padding;
+      if (textX > width - padding) textX = width - padding;
+      if (textY < padding) textY = padding;
+      if (textY > height - padding) textY = height - padding;
+
+      text(cityName, textX, textY);
+    }
+  }
+}
+
+function getWaterRegionGroups() {
+  let visited = new Set();
+  let waterRegionGroups = [];
+
+  function exploreGroup(startCity) {
+    let queue = [[startCity.x, startCity.y]]; // Convert object to array before adding
+    let group = new Set();
+
+    while (queue.length > 0) {
+      let city = queue.pop();
+      let cityKey = JSON.stringify(city); // Store as string for consistency
+
+      if (visited.has(cityKey)) continue;
+
+      visited.add(cityKey);
+      group.add(cityKey); // Store as string for uniformity
+
+      // Check direct water-to-water connections
+      for (let [cityA, cityB] of waterCityConnections.concat(landWaterCityConnections)) {
+        let cityAKey = JSON.stringify(cityA);
+        let cityBKey = JSON.stringify(cityB);
+
+        if (cityAKey === cityKey && !visited.has(cityBKey)) {
+          queue.push(cityB);
+        } else if (cityBKey === cityKey && !visited.has(cityAKey)) {
+          queue.push(cityA);
+        }
+      }
+
+      
+    }
+
+    return Array.from(group).map(JSON.parse); // Convert stored JSON strings back to arrays
+  }
+
+  for (let waterCity of waterCities) {
+    let cityKey = JSON.stringify([waterCity.x, waterCity.y]); // Convert to array
+    if (!visited.has(cityKey)) {
+        let newGroup = exploreGroup(waterCity)
+            .filter(city => waterCities.some(w => w.x === city[0] && w.y === city[1])); // Ensure only water cities remain
+
+        if (newGroup.length > 0) {
+            waterRegionGroups.push(newGroup);
+        }
+    }
+}
+
+
+  return waterRegionGroups;
+}
+
+function drawRiver(x1, y1, x2, y2, maxDistanceAffected) {
+  function getDistanceToLine(px, py, ax, ay, bx, by) {
+    // Calculate perpendicular distance from (px, py) to line segment (ax, ay) - (bx, by)
+    let A = px - ax;
+    let B = py - ay;
+    let C = bx - ax;
+    let D = by - ay;
+
+    let dot = A * C + B * D;
+    let lenSq = C * C + D * D;
+    let param = lenSq !== 0 ? dot / lenSq : -1;
+
+    let closestX, closestY;
+    if (param < 0) {
+      closestX = ax;
+      closestY = ay;
+    } else if (param > 1) {
+      closestX = bx;
+      closestY = by;
+    } else {
+      closestX = ax + param * C;
+      closestY = ay + param * D;
+    }
+
+    let dx = px - closestX;
+    let dy = py - closestY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // Iterate over noise grid and modify values
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let distance = getDistanceToLine(x, y, x1, y1, x2, y2);
+
+      if (distance === 0) {
+        noiseGrid[x][y] = 0; // Set exact river path to water (0)
+      } else if (distance <= maxDistanceAffected) {
+        let falloff = distance / maxDistanceAffected; // Percentage effect
+        noiseGrid[x][y] *= falloff; // Reduce noise based on distance
+      }
+    }
+  }
+}
+
+
+function drawLandWaterConnections() {
+  stroke(0, 0, 255); // Blue color for water connections
+  strokeWeight(2);
+  
+  for (let connection of landWaterCityConnections) {
+    let [cityA, cityB] = connection;
+
+    // Draw a blue line between the land city and the water city
+    line(cityA[0], cityA[1], cityB[0], cityB[1]);
+  }
+  
+  for (let connection of waterCityConnections) {
+    let [cityA, cityB] = connection;
+
+    // Draw a blue line between the land city and the water city
+    line(cityA[0], cityA[1], cityB[0], cityB[1]);
+  }
+  for (let waterCityGroup of waterGroups){
+    for (let waterCity of waterCityGroup){
+      ellipse(waterCity[0], waterCity[1], 15, 15);
+    }
+  }
+}
+
+
+
 function draw() {
+  background(230);
   image(noiseCanvas, 0, 0);
+  drawLandWaterConnections();
 
   fill(0, 0, 0);
   noStroke();
@@ -952,4 +1156,11 @@ function draw() {
   // ellipse(waterCity.x, waterCity.y, 10, 10);
   //}
   addSig();
+    textSize(10);
+  textFont('Courier New');
+noSmooth()
+      strokeWeight(1);
+      textAlign(CENTER, CENTER);
+
+  //drawCityNames();
 }
