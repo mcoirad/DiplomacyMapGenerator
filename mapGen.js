@@ -49,6 +49,9 @@ let waterGroups = [];
 let waterCityNames = {};
 
 let cityBoundingBoxes = {};
+let countryNamesList = [];
+let countryNamesListStr = '';
+let startingUnits = {};
 function setup() {
   
   createCanvas(mapSize, mapSize);
@@ -298,6 +301,9 @@ function generateNoise() {
       break;
     }
   }
+  generateCountryNames();
+  assignStartingUnits();
+  downloadPHPMapAsZip();
 }
 
 function doMapGeneration(){
@@ -539,7 +545,8 @@ function generateTerritories() {
     });
   });
 
-  cityConnections = new Set(); // Using a Set to avoid duplicates
+  let cityConnectionsSet = new Set(); // Use a Set to avoid duplicates
+  cityConnections = []; // Store the final unique connections
 
   function weight(x1, y1, x2, y2) {
     let horiz = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
@@ -613,13 +620,23 @@ function generateTerritories() {
             ) {
               let connectedCityIndex = territories[nx][ny];
               let connectedCity = cities[connectedCityIndex];
-              let connection = JSON.stringify([
-                [city.x, city.y],
-                [connectedCity.x, connectedCity.y],
-              ]);
 
-              // Store as string to avoid duplicates
-              cityConnections.add(connection);
+              // Create a unique key for the connection, ensuring consistent ordering
+              let connectionKey =
+                city.x < connectedCity.x ||
+                (city.x === connectedCity.x && city.y < connectedCity.y)
+                  ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
+                  : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
+
+              // Add only if it's not already present
+              if (!cityConnectionsSet.has(connectionKey)) {
+                cityConnectionsSet.add(connectionKey);
+                cityConnections.push([
+                  [city.x, city.y],
+                  [connectedCity.x, connectedCity.y],
+                ]);
+              }
+
               isBorder = true;
             }
           }
@@ -635,11 +652,6 @@ function generateTerritories() {
   }
   noiseCanvas.updatePixels();
 
-  // Convert cityConnections back to a list of coordinate pairs
-  cityConnections = Array.from(cityConnections).map((connection) =>
-    JSON.parse(connection)
-  );
-
   console.log("City Connections:", cityConnections);
 }
 
@@ -647,9 +659,11 @@ function generateTerritories() {
 function generateWaterTerritories() {
   waterTerritories = Array.from(Array(width), () => new Array(height).fill(null));
   let queue = [];
-  
-  waterCityConnections = new Set(); // Tracks water-to-water connections
-  landWaterCityConnections = new Set(); // Tracks water-to-land connections
+
+  let waterCityConnectionsSet = new Set(); // Tracks unique water-to-water connections
+  let landWaterCityConnectionsSet = new Set(); // Tracks unique water-to-land connections
+  waterCityConnections = []; // Final list
+  landWaterCityConnections = []; // Final list
 
   for (let i = 0; i < waterCities.length; i++) {
     let city = waterCities[i];
@@ -708,14 +722,42 @@ function generateWaterTerritories() {
             if (neighborCityIndex !== null && neighborCityIndex !== cityIndex) {
               // Water-to-water connection
               let connectedCity = waterCities[neighborCityIndex];
-              let connection = JSON.stringify([[city.x, city.y], [connectedCity.x, connectedCity.y]]);
-              waterCityConnections.add(connection);
+
+              // Ensure unique ordering
+              let connectionKey =
+                city.x < connectedCity.x ||
+                (city.x === connectedCity.x && city.y < connectedCity.y)
+                  ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
+                  : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
+
+              if (!waterCityConnectionsSet.has(connectionKey)) {
+                waterCityConnectionsSet.add(connectionKey);
+                waterCityConnections.push([
+                  [city.x, city.y],
+                  [connectedCity.x, connectedCity.y],
+                ]);
+              }
+
               isWaterBorder = true;
             } else if (neighborLandCityIndex !== null && noiseGrid[nx][ny] > waterLevel) {
               // Water-to-land connection
               let landCity = cities[neighborLandCityIndex];
-              let connection = JSON.stringify([[city.x, city.y], [landCity.x, landCity.y]]);
-              landWaterCityConnections.add(connection);
+
+              // Ensure unique ordering
+              let connectionKey =
+                city.x < landCity.x ||
+                (city.x === landCity.x && city.y < landCity.y)
+                  ? `${city.x},${city.y}-${landCity.x},${landCity.y}`
+                  : `${landCity.x},${landCity.y}-${city.x},${city.y}`;
+
+              if (!landWaterCityConnectionsSet.has(connectionKey)) {
+                landWaterCityConnectionsSet.add(connectionKey);
+                landWaterCityConnections.push([
+                  [city.x, city.y],
+                  [landCity.x, landCity.y],
+                ]);
+              }
+
               isLandWaterBorder = true;
             }
           }
@@ -726,7 +768,7 @@ function generateWaterTerritories() {
           noiseCanvas.set(x, y, color(128)); // Gray for water-to-water borders
         } else if (isLandWaterBorder) {
           noiseCanvas.set(x, y, color(0)); // Keep water-to-land borders black
-        } else if (pixelColor[0] != 0 || pixelColor[1] != 0 || pixelColor[2] != 0) {
+        } else if (pixelColor[0] !== 0 || pixelColor[1] !== 0 || pixelColor[2] !== 0) {
           noiseCanvas.set(x, y, color(32, 159, 201)); // Water color
         }
       }
@@ -734,13 +776,10 @@ function generateWaterTerritories() {
   }
   noiseCanvas.updatePixels();
 
-  // Convert sets back to lists of coordinate pairs
-  waterCityConnections = Array.from(waterCityConnections).map((connection) => JSON.parse(connection));
-  landWaterCityConnections = Array.from(landWaterCityConnections).map((connection) => JSON.parse(connection));
-
   console.log("Water City Connections:", waterCityConnections);
   console.log("Land-Water City Connections:", landWaterCityConnections);
 }
+
 
 function assignTerritoryColorsOld() {
   territoryColors = cities.map(() =>
@@ -1630,12 +1669,453 @@ function getWaterCityNames() {
     return waterCityNamesDict;
 }
 
+function generateCityDataList() {
+  let cityDataList = [];
+
+  for (let city of cities) {
+    let cityKey = `${city.x},${city.y}`;
+    let cityName = cityNamesDict[cityKey] || waterCityNames[cityKey];
+
+    // Determine city type: 'Land', 'Coast', or 'Sea'
+    let cityType = 'Land';
+    if (waterCityNames[cityKey]) {
+      cityType = 'Sea'; // Water city
+    } else {
+      // Check if city appears in landWaterCityConnections (indicating it's on the coast)
+      let isCoast = landWaterCityConnections.some(([landCity, waterCity]) => 
+        (landCity[0] === city.x && landCity[1] === city.y)
+      );
+      if (isCoast) {
+        cityType = 'Coast';
+      }
+    }
+
+    // Check if it's a supply center
+    let supplyStatus = supplyCenters.some(sc => sc.x === city.x && sc.y === city.y) ? 'Yes' : 'No';
+
+    // Find city group index
+    let groupIndex = 0;
+    for (let i = 0; i < cityGroups.length; i++) {
+      if (cityGroups[i].some(c => c.x === city.x && c.y === city.y)) {
+        groupIndex = i + 1; // Incremented by one
+        break;
+      }
+    }
+
+    // Compute coordinates
+    let x = city.x;
+    let y = city.y;
+    let x2 = x * 2;
+    let y2 = y * 2;
+
+    // Create the formatted string
+    let cityString = `array('${cityName}', '${cityType}', '${supplyStatus}', ${groupIndex}, ${x}, ${y}, ${x2}, ${y2}),`;
+
+    cityDataList.push(cityString);
+  }
+
+  return cityDataList;
+}
+
+function generateConnectionDataList() {
+  let connectionDataList = [];
+
+  // Helper function to process a connection
+  function processConnection(city1, city2, isWater, isLand) {
+    let name1 = cityNamesDict[`${city1[0]},${city1[1]}`] || waterCityNames[`${city1[0]},${city1[1]}`];
+    let name2 = cityNamesDict[`${city2[0]},${city2[1]}`] || waterCityNames[`${city2[0]},${city2[1]}`];
+
+    if (name1 && name2) {
+      let waterConnection = isWater ? 'Yes' : 'No';
+      let landConnection = isLand ? 'Yes' : 'No';
+      let connectionString = `array('${name1}','${name2}','${waterConnection}','${landConnection}'),`;
+      connectionDataList.push(connectionString);
+    }
+  }
+
+  // Process city-to-city (land) connections
+  for (let [city1, city2] of cityConnections) {
+    processConnection(city1, city2, false, true);
+  }
+
+  // Process water city-to-water city connections
+  for (let [city1, city2] of waterCityConnections) {
+    processConnection(city1, city2, true, false);
+  }
+
+  // Process land-to-water city connections
+  for (let [city1, city2] of landWaterCityConnections) {
+    processConnection(city1, city2, true, true);
+  }
+
+  return connectionDataList;
+}
+
+function generatePHPMapFile() {
+  // Get city and connection data lists
+  let cityDataList = generateCityDataList();
+  let connectionDataList = generateConnectionDataList();
+
+  // Convert arrays to formatted PHP strings
+  let cityDataPHP = cityDataList.join("\n\t");
+  let connectionDataPHP = connectionDataList.join("\n\t");
+
+  // Construct the PHP file string
+  return `<?php
+// This file installs the map data for the AncMed variant
+defined('IN_CODE') or die('This script can not be run by itself.');
+require_once("variants/install.php");
+
+InstallTerritory::$Territories=array();
+$countries=$this->countries;
+$territoryRawData=array(
+\t${cityDataPHP}
+);
+
+foreach($territoryRawData as $territoryRawRow)
+{
+\tlist($name, $type, $supply, $countryID, $x, $y, $sx, $sy)=$territoryRawRow;
+\tnew InstallTerritory($name, $type, $supply, $countryID, $x, $y, $sx, $sy);
+}
+unset($territoryRawData);
+
+$bordersRawData=array(
+\t${connectionDataPHP}
+);
+
+foreach($bordersRawData as $borderRawRow)
+{
+\tlist($from, $to, $fleets, $armies)=$borderRawRow;
+\tInstallTerritory::$Territories[$to]->addBorder(InstallTerritory::$Territories[$from],$fleets,$armies);
+}
+unset($bordersRawData);
+
+InstallTerritory::runSQL($this->mapID);
+InstallCache::terrJSON($this->territoriesJSONFile(),$this->mapID);
+?>`;
+}
+
+function downloadPHPMapAsZip() {
+  let phpContent = generatePHPMapFile(); // Get PHP file content
+  let phpVariant = generatePHPVariantFile();
+  let phpDrawMap = generatePHPDrawMapFile();
+  let phpPreAdj = generatePHPAdjudicatorPreGameFile();
+
+  // Create a new ZIP archive
+  let zip = new JSZip();
+  zip.file("install.php", phpContent);
+  zip.file("variant.php", phpVariant);
+  zip.file("classes/drawMap.php", phpDrawMap);
+  zip.file("classes/adjudicatorPreGame.php", phpPreAdj);
+
+  // Generate the small map image
+  let smallMap = drawSmallMap();
+
+  // Convert the small map canvas to a PNG Blob and add it to the ZIP
+  smallMap.canvas.toBlob(function (blob) {
+    if (!blob) {
+      console.error("Failed to create PNG Blob!");
+      return;
+    }
+
+    zip.file("resources/smallMap.png", blob); // Add the PNG file
+
+    // Generate and download the ZIP file
+    zip.generateAsync({ type: "blob" }).then(function (content) {
+      let a = document.createElement("a");
+      let url = URL.createObjectURL(content);
+      a.href = url;
+      a.download = "map_data.zip"; // Name of the ZIP file
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    });
+  }, "image/png");
+}
 
 
+function generateCountryNames() {
+  let countryNamesSet = new Set();
+
+  // Generate unique country names until we have enough
+  while (countryNamesSet.size < cityGroups.length) {
+    countryNamesSet.add(getRandomCountryName());
+  }
+  countryNamesList =  [...countryNamesSet];
+  countryNamesListStr = Array.from(countryNamesSet).map(name => `'${name}'`).join(", ");
+  console.log(countryNamesList);
+}
+
+function generatePHPVariantFile() {
+  
+
+  return `<?php
+/*
+    Copyright (C) 2004-2009 Kestas J. Kuliukas
+
+    This file is part of webDiplomacy.
+
+    webDiplomacy is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Affero General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    webDiplomacy is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU Affero General Public License
+    along with webDiplomacy.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+defined('IN_CODE') or die('This script can not be run by itself.');
+
+/**
+ * The default "classic" Diplomacy; Europe etc.
+ */
+class ClassicVariant extends WDVariant {
+    public $id=1;
+    public $mapID=1;
+    public $name='RandomMap';
+    public $fullName='RandomMap';
+    public $description='A randomly generated diplomacy map.';
+    public $author='Diplomacy ProcGen';
+    public $adapter='Dario Macieira Mitchell @kurli_kid'
+
+    public $countries=array(${countryNamesListStr});
+
+    public function __construct() {
+        parent::__construct();
+
+        // drawMap extended for country-colors and loading the classic map images
+        $this->variantClasses['drawMap'] = 'RandomMap';
+
+        /*
+         * adjudicatorPreGame extended for country starting unit data
+         */
+        $this->variantClasses['adjudicatorPreGame'] = 'RandomMap';
+    }
+
+    public function turnAsDate($turn) {
+        if ( $turn==-1 ) return l_t("Pre-game");
+        else return ( $turn % 2 ? l_t("Autumn").", " : l_t("Spring").", " ).(floor($turn/2) + 1901);
+    }
+
+    public function turnAsDateJS() {
+        return 'function(turn) {
+            if( turn==-1 ) return l_t("Pre-game");
+            else return ( turn%2 ? l_t("Autumn")+", " : l_t("Spring")+", " )+(Math.floor(turn/2) + 1901);
+        };';
+    }
+}
+?>`;
+}
+
+function generatePHPDrawMapFile() {
+  let countryColorsList = groupColors.map((color, index) => {
+    let r = red(color);
+    let g = green(color);
+    let b = blue(color);
+    return `\t${index} => array(${r}, ${g}, ${b})`;
+  }).join(",\n");
+
+  return `<?php
+
+defined('IN_CODE') or die('This script can not be run by itself.');
+
+class RandomMapVariant_drawMap extends drawMap {
+
+    protected $countryColors = array(
+${countryColorsList}
+    );
+
+    protected function resources() {
+        if( $this->smallmap )
+        {
+            return array(
+                'map'     =>l_s('variants/GoT/resources/smallmap.png'),
+                'army'    =>l_s('variants/GoT/resources/smallarmy.png'),
+                'fleet'   =>l_s('variants/GoT/resources/smallfleet.png'),
+                'names'   =>l_s('variants/GoT/resources/smallmapNames.png'),
+                'standoff'=>l_s('images/icons/cross.png')
+            );
+        }
+        else
+        {
+            return array(
+                'map'     =>l_s('variants/GoT/resources/map.png'),
+                'army'    =>l_s('variants/GoT/resources/army.png'),
+                'fleet'   =>l_s('variants/GoT/resources/fleet.png'),
+                'names'   =>l_s('variants/GoT/resources/mapNames.png'),
+                'standoff'=>l_s('images/icons/cross.png')
+            );
+        }
+    }
+
+}
+
+?>`;
+}
+
+function assignStartingUnits(fleetDensity=0.5) {
+  startingUnits = {}; // Dictionary to store city names and assigned unit type
+
+  for (let group of cityGroups) {
+    let supplyCentersInGroup = group.filter(city =>
+      supplyCenters.some(supplyCity => supplyCity.x === city.x && supplyCity.y === city.y)
+    );
+
+    let totalSupplyCenters = supplyCentersInGroup.length;
+    let targetFleets = Math.ceil(totalSupplyCenters * fleetDensity); // Round up to ensure at least 1 fleet if density > 0
+
+    let fleetCount = 0;
+
+    for (let city of supplyCentersInGroup) {
+      let cityKey = `${city.x},${city.y}`;
+      let cityName = cityNamesDict[cityKey];
+
+      if (!cityName) continue; // Skip if no city name is assigned
+
+      let isCoastal = landWaterCityConnections.some(([waterCity, landCity]) =>
+        (landCity[0] === city.x && landCity[1] === city.y)
+      );
+
+      // Assign fleets first until we reach the target, but only to coastal cities
+      if (fleetCount < targetFleets && isCoastal) {
+        startingUnits[cityName] = 'Fleet';
+        fleetCount++;
+      } else {
+        startingUnits[cityName] = 'Army';
+      }
+    }
+  }
+
+  return startingUnits;
+}
+
+function generatePHPAdjudicatorPreGameFile() {
+  let countryUnitsList = cityGroups.map((group, index) => {
+    let countryName = countryNamesList[index] || `Country${index + 1}`; // Default name if missing
+    let units = group
+      .filter(city => {
+        let cityKey = `${city.x},${city.y}`;
+        return startingUnits[cityNamesDict[cityKey]] !== undefined; // Only include supply centers
+      })
+      .map(city => {
+        let cityKey = `${city.x},${city.y}`;
+        let cityName = cityNamesDict[cityKey];
+        let unitType = startingUnits[cityName];
+        return `\t\t'${cityName}' => '${unitType}'`;
+      })
+      .join(",\n");
+
+    return `\t'${countryName}' => array(\n${units}\n\t)`;
+  }).join(",\n\n");
+
+  return `<?php
+defined('IN_CODE') or die('This script can not be run by itself.');
+
+class RandomMapVariant_adjudicatorPreGame extends adjudicatorPreGame {
+
+    protected $countryUnits = array(
+${countryUnitsList}
+    );
+
+}
+
+?>`;
+}
+
+function drawSmallMap() {
+  let uniqueMap = createGraphics(width, height);
+
+  let territoryColors = {}; // Dictionary to store unique colors for each land territory
+  let usedColors = new Set(); // Keep track of used colors to avoid duplicates
+  let seaColor = color(32, 159, 201); // Standard blue for water territories
+
+  function getUniqueColor() {
+    let r, g, b, newColor;
+    do {
+      r = floor(random(50, 200));
+      g = floor(random(50, 200));
+      b = floor(random(50, 200));
+      newColor = color(r, g, b);
+    } while (usedColors.has(newColor.toString())); // Ensure unique color
+
+    usedColors.add(newColor.toString());
+    return newColor;
+  }
+
+  uniqueMap.noStroke();
+  let territoryIndex = 0;
+
+  // Assign colors and draw land territories
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let key = `${territories[x][y]}`; // Unique ID for each land territory
+      if (territories[x][y] !== null) {
+        if (!territoryColors[key]) {
+          territoryColors[key] = getUniqueColor();
+        }
+        uniqueMap.fill(territoryColors[key]);
+        uniqueMap.rect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // Assign sea blue and draw water territories
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      if (waterTerritories[x][y] !== null) {
+        uniqueMap.fill(seaColor);
+        uniqueMap.rect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // Draw borders in black
+  uniqueMap.stroke(0); // Black stroke for borders
+  uniqueMap.strokeWeight(1);
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      if (territories[x][y] !== null || waterTerritories[x][y] !== null) {
+        let currentTerritory = territories[x][y] !== null ? territories[x][y] : waterTerritories[x][y];
+
+        let neighbors = [
+          { dx: -1, dy: 0 },
+          { dx: 1, dy: 0 },
+          { dx: 0, dy: -1 },
+          { dx: 0, dy: 1 },
+        ];
+
+        for (let { dx, dy } of neighbors) {
+          let nx = x + dx;
+          let ny = y + dy;
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+            let neighborTerritory = territories[nx][ny] !== null ? territories[nx][ny] : waterTerritories[nx][ny];
+
+            if (neighborTerritory !== null && neighborTerritory !== currentTerritory) {
+              uniqueMap.point(x, y); // Draw border point
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return uniqueMap;
+}
 
 function draw() {
   background(230);
   image(noiseCanvas, 0, 0);
+    drawCityNames();
+
   //drawLandWaterConnections();
 
   fill(0, 0, 0);
@@ -1664,5 +2144,4 @@ noSmooth()
       strokeWeight(1);
       textAlign(CENTER, CENTER);
 
-  drawCityNames();
 }
