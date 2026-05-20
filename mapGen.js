@@ -811,6 +811,13 @@ function findAndAssignExtraCities(numExtraCities) {
 function generateTerritories() {
   territories = Array.from(Array(width), () => new Array(height).fill(null));
   let queue = createPriorityQueue((a, b) => a.score - b.score); // Min-heap, lowest score first
+  let landCells = [];
+  let cardinalNeighbors = [
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 },
+  ];
 
   let cityToGroup = new Map();
   cityGroups.forEach((group, groupIndex) => {
@@ -846,40 +853,35 @@ function generateTerritories() {
     return newColor;
   }
 
-  let visited = new Set();
+  let visited = Array.from(Array(width), () => new Uint8Array(height));
 
   for (let i = 0; i < cities.length; i++) {
     let city = cities[i];
-    let key = `${city.x},${city.y}`;
+    if (visited[city.x][city.y] === 1) continue;
     territories[city.x][city.y] = i;
-    visited.add(key);
+    visited[city.x][city.y] = 1;
+    landCells.push([city.x, city.y]);
     queue.queue({ x: city.x, y: city.y, cityIndex: i, score: 0 });
   }
 
+  // noprotect
   while (queue.length > 0) {
     let { x, y, cityIndex, score } = queue.dequeue();
-    let neighbors = [
-      { dx: -1, dy: 0 },
-      { dx: 1, dy: 0 },
-      { dx: 0, dy: -1 },
-      { dx: 0, dy: 1 },
-    ];
-
-    for (let { dx, dy } of neighbors) {
+    for (let { dx, dy } of cardinalNeighbors) {
       let nx = x + dx;
       let ny = y + dy;
-      let key = `${nx},${ny}`;
       if (
         nx >= 0 &&
         nx < width &&
         ny >= 0 &&
         ny < height &&
-        !visited.has(key) &&
+        visited[nx][ny] === 0 &&
         noiseGrid[nx][ny] > waterLevel
       ) {
         let newScore = score + weight(x, y, nx, ny);
         territories[nx][ny] = cityIndex;
-        visited.add(key);
+        visited[nx][ny] = 1;
+        landCells.push([nx, ny]);
         queue.queue({ x: nx, y: ny, cityIndex, score: newScore });
       }
     }
@@ -887,65 +889,55 @@ function generateTerritories() {
 
   noiseCanvas.loadPixels();
   uniqueTerritoryMap.loadPixels();
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      if (territories[x][y] !== null) {
-        let cityIndex = territories[x][y];
-        let city = cities[cityIndex];
-        let groupIndex = cityToGroup.get(city);
-        let isBorder = false;
+  for (let i = 0; i < landCells.length; i++) {
+    let [x, y] = landCells[i];
+    let cityIndex = territories[x][y];
+    let city = cities[cityIndex];
+    let groupIndex = cityToGroup.get(city);
+    let isBorder = false;
 
-        if (!territoryColors[cityIndex]) {
-          territoryColors[cityIndex] = getUniqueColor();
-        }
+    if (!territoryColors[cityIndex]) {
+      territoryColors[cityIndex] = getUniqueColor();
+    }
 
-        noiseCanvas.set(x, y, groupColors[groupIndex]);
-        uniqueTerritoryMap.set(x, y, territoryColors[cityIndex]);
+    noiseCanvas.set(x, y, groupColors[groupIndex]);
+    uniqueTerritoryMap.set(x, y, territoryColors[cityIndex]);
 
-        let neighbors = [
-          { dx: -1, dy: 0 },
-          { dx: 1, dy: 0 },
-          { dx: 0, dy: -1 },
-          { dx: 0, dy: 1 },
-        ];
+    for (let { dx, dy } of cardinalNeighbors) {
+      let nx = x + dx;
+      let ny = y + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        if (
+          territories[nx][ny] !== null &&
+          territories[nx][ny] !== cityIndex
+        ) {
+          let connectedCityIndex = territories[nx][ny];
+          let connectedCity = cities[connectedCityIndex];
 
-        for (let { dx, dy } of neighbors) {
-          let nx = x + dx;
-          let ny = y + dy;
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            if (
-              territories[nx][ny] !== null &&
-              territories[nx][ny] !== cityIndex
-            ) {
-              let connectedCityIndex = territories[nx][ny];
-              let connectedCity = cities[connectedCityIndex];
+          // Create a unique key for the connection, ensuring consistent ordering
+          let connectionKey =
+            city.x < connectedCity.x ||
+              (city.x === connectedCity.x && city.y < connectedCity.y)
+              ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
+              : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
 
-              // Create a unique key for the connection, ensuring consistent ordering
-              let connectionKey =
-                city.x < connectedCity.x ||
-                  (city.x === connectedCity.x && city.y < connectedCity.y)
-                  ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
-                  : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
-
-              // Add only if it's not already present
-              if (!cityConnectionsSet.has(connectionKey)) {
-                cityConnectionsSet.add(connectionKey);
-                cityConnections.push([
-                  [city.x, city.y],
-                  [connectedCity.x, connectedCity.y],
-                ]);
-              }
-
-              isBorder = true;
-            }
+          // Add only if it's not already present
+          if (!cityConnectionsSet.has(connectionKey)) {
+            cityConnectionsSet.add(connectionKey);
+            cityConnections.push([
+              [city.x, city.y],
+              [connectedCity.x, connectedCity.y],
+            ]);
           }
-        }
 
-        if (isBorder) {
-          noiseCanvas.set(x, y, color(128)); // Black for borders
-          uniqueTerritoryMap.set(x, y, color(128));
+          isBorder = true;
         }
       }
+    }
+
+    if (isBorder) {
+      noiseCanvas.set(x, y, color(128)); // Black for borders
+      uniqueTerritoryMap.set(x, y, color(128));
     }
   }
   noiseCanvas.updatePixels();
@@ -959,6 +951,8 @@ function generateWaterTerritories() {
     new Array(height).fill(null)
   );
   let queue = [];
+  let queueIndex = 0;
+  let waterCells = [];
 
   let waterCityConnectionsSet = new Set(); // Tracks unique water-to-water connections
   let landWaterCityConnectionsSet = new Set(); // Tracks unique water-to-land connections
@@ -969,12 +963,15 @@ function generateWaterTerritories() {
 
   for (let i = 0; i < waterCities.length; i++) {
     let city = waterCities[i];
-    waterTerritories[city.x][city.y] = i;
-    queue.push({ x: city.x, y: city.y, cityIndex: i });
+    if (waterTerritories[city.x][city.y] === null) {
+      waterTerritories[city.x][city.y] = i;
+      queue.push({ x: city.x, y: city.y, cityIndex: i });
+      waterCells.push([city.x, city.y]);
+    }
   }
 
-  while (queue.length > 0) {
-    let { x, y, cityIndex } = queue.shift();
+  while (queueIndex < queue.length) {
+    let { x, y, cityIndex } = queue[queueIndex++];
     let neighbors = [
       { dx: -1, dy: 0 },
       { dx: 1, dy: 0 },
@@ -995,96 +992,90 @@ function generateWaterTerritories() {
       ) {
         waterTerritories[nx][ny] = cityIndex;
         queue.push({ x: nx, y: ny, cityIndex });
+        waterCells.push([nx, ny]);
       }
     }
   }
 
   noiseCanvas.loadPixels();
   uniqueTerritoryMap.loadPixels();
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      if (waterTerritories[x][y] !== null) {
-        let cityIndex = waterTerritories[x][y];
-        let city = waterCities[cityIndex];
-        let isWaterBorder = false;
-        let isLandWaterBorder = false;
-        let neighbors = [
-          { dx: -1, dy: 0 },
-          { dx: 1, dy: 0 },
-          { dx: 0, dy: -1 },
-          { dx: 0, dy: 1 },
-        ];
 
-        for (let { dx, dy } of neighbors) {
-          let nx = x + dx;
-          let ny = y + dy;
-          if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-            let neighborCityIndex = waterTerritories[nx][ny];
-            let neighborLandCityIndex = territories[nx][ny];
+  for (let i = 0; i < waterCells.length; i++) {
+    let [x, y] = waterCells[i];
+    let cityIndex = waterTerritories[x][y];
+    let city = waterCities[cityIndex];
+    let isWaterBorder = false;
+    let isLandWaterBorder = false;
+    let neighbors = [
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+    ];
 
-            if (neighborCityIndex !== null && neighborCityIndex !== cityIndex) {
-              // Water-to-water connection
-              let connectedCity = waterCities[neighborCityIndex];
+    for (let { dx, dy } of neighbors) {
+      let nx = x + dx;
+      let ny = y + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        let neighborCityIndex = waterTerritories[nx][ny];
+        let neighborLandCityIndex = territories[nx][ny];
 
-              // Ensure unique ordering
-              let connectionKey =
-                city.x < connectedCity.x ||
-                  (city.x === connectedCity.x && city.y < connectedCity.y)
-                  ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
-                  : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
+        if (neighborCityIndex !== null && neighborCityIndex !== cityIndex) {
+          // Water-to-water connection
+          let connectedCity = waterCities[neighborCityIndex];
 
-              if (!waterCityConnectionsSet.has(connectionKey)) {
-                waterCityConnectionsSet.add(connectionKey);
-                waterCityConnections.push([
-                  [city.x, city.y],
-                  [connectedCity.x, connectedCity.y],
-                ]);
-              }
+          // Ensure unique ordering
+          let connectionKey =
+            city.x < connectedCity.x ||
+              (city.x === connectedCity.x && city.y < connectedCity.y)
+              ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
+              : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
 
-              isWaterBorder = true;
-            } else if (
-              neighborLandCityIndex !== null &&
-              noiseGrid[nx][ny] > waterLevel
-            ) {
-              // Water-to-land connection
-              let landCity = cities[neighborLandCityIndex];
-
-              // Ensure unique ordering
-              let connectionKey =
-                city.x < landCity.x ||
-                  (city.x === landCity.x && city.y < landCity.y)
-                  ? `${city.x},${city.y}-${landCity.x},${landCity.y}`
-                  : `${landCity.x},${landCity.y}-${city.x},${city.y}`;
-
-              if (!landWaterCityConnectionsSet.has(connectionKey)) {
-                landWaterCityConnectionsSet.add(connectionKey);
-                landWaterCityConnections.push([
-                  [city.x, city.y],
-                  [landCity.x, landCity.y],
-                ]);
-              }
-
-              isLandWaterBorder = true;
-            }
+          if (!waterCityConnectionsSet.has(connectionKey)) {
+            waterCityConnectionsSet.add(connectionKey);
+            waterCityConnections.push([
+              [city.x, city.y],
+              [connectedCity.x, connectedCity.y],
+            ]);
           }
-        }
 
-        let pixelColor = noiseCanvas.get(x, y);
-        if (isWaterBorder) {
-          noiseCanvas.set(x, y, color(128)); // Gray for water-to-water borders
-          uniqueTerritoryMap.set(x, y, color(128));
-        } else if (isLandWaterBorder) {
-          noiseCanvas.set(x, y, color(0)); // Keep water-to-land borders black
-          uniqueTerritoryMap.set(x, y, color(0));
+          isWaterBorder = true;
         } else if (
-          pixelColor[0] !== 0 ||
-          pixelColor[1] !== 0 ||
-          pixelColor[2] !== 0
+          neighborLandCityIndex !== null &&
+          noiseGrid[nx][ny] > waterLevel
         ) {
-          noiseCanvas.set(x, y, color(32, 159, 201)); // Water color
-          uniqueTerritoryMap.set(x, y, color(32, 159, 201)); // Water color
+          // Water-to-land connection
+          let landCity = cities[neighborLandCityIndex];
+
+          // Ensure unique ordering
+          let connectionKey =
+            city.x < landCity.x ||
+              (city.x === landCity.x && city.y < landCity.y)
+              ? `${city.x},${city.y}-${landCity.x},${landCity.y}`
+              : `${landCity.x},${landCity.y}-${city.x},${city.y}`;
+
+          if (!landWaterCityConnectionsSet.has(connectionKey)) {
+            landWaterCityConnectionsSet.add(connectionKey);
+            landWaterCityConnections.push([
+              [city.x, city.y],
+              [landCity.x, landCity.y],
+            ]);
+          }
+
+          isLandWaterBorder = true;
         }
       }
+    }
+
+    if (isWaterBorder) {
+      noiseCanvas.set(x, y, color(128)); // Gray for water-to-water borders
+      uniqueTerritoryMap.set(x, y, color(128));
+    } else if (isLandWaterBorder) {
+      noiseCanvas.set(x, y, color(0)); // Keep water-to-land borders black
+      uniqueTerritoryMap.set(x, y, color(0));
+    } else {
+      noiseCanvas.set(x, y, seaColor); // Water color
+      uniqueTerritoryMap.set(x, y, seaColor); // Water color
     }
   }
   noiseCanvas.updatePixels();
