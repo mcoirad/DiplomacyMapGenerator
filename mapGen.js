@@ -56,6 +56,7 @@ let startingUnits = {};
 
 let supplyDensity = 0.5;
 let fleetDensity = 0.5;
+let neutralCurrentLogicRatio = 0.5;
 
 let cityPlacementStrategy = "farthestNearest";
 
@@ -1369,10 +1370,12 @@ function generateSupplyCenters() {
 
   // Determine the number of ungrouped cities to turn into supply centers based on supplyDensity
   let numToSelect = floor(ungroupedCities.length * supplyDensity);
+  let numCurrentLogic = floor(numToSelect * neutralCurrentLogicRatio);
+  let numFarthestNearest = numToSelect - numCurrentLogic;
   selectedUngrouped = [];
 
-  // Iterate through all city groups until we reach the supplyDensity target
-  while (selectedUngrouped.length < numToSelect) {
+  // Phase 1: existing neutral SC placement logic
+  while (selectedUngrouped.length < numCurrentLogic) {
     let addedThisRound = false;
 
     for (let group of cityGroups) {
@@ -1409,10 +1412,35 @@ function generateSupplyCenters() {
         supplyCenters.push(bestCity);
         addedThisRound = true;
       }
-      if (selectedUngrouped.length >= numToSelect) break; // Stop if we hit the target
+      if (selectedUngrouped.length >= numCurrentLogic) break; // Stop if we hit the target
     }
 
     if (!addedThisRound) break; // Stop if no more valid cities were found
+  }
+
+  // Phase 2: farthestNearest from all existing supply centers
+  while (selectedUngrouped.length < numCurrentLogic + numFarthestNearest) {
+    let bestCity = null;
+    let bestMinDist = -1;
+
+    for (let city of ungroupedCities) {
+      if (selectedUngrouped.includes(city)) continue;
+
+      let minDistToSC = Infinity;
+      for (let sc of supplyCenters) {
+        let d = dist(city.x, city.y, sc.x, sc.y);
+        if (d < minDistToSC) minDistToSC = d;
+      }
+
+      if (minDistToSC > bestMinDist) {
+        bestMinDist = minDistToSC;
+        bestCity = city;
+      }
+    }
+
+    if (!bestCity) break;
+    selectedUngrouped.push(bestCity);
+    supplyCenters.push(bestCity);
   }
 
   return supplyCenters;
