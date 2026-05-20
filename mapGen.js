@@ -59,6 +59,89 @@ let fleetDensity = 0.5;
 
 let cityPlacementStrategy = "farthestNearest";
 
+class BinaryMinHeapPriorityQueue {
+  constructor(options = {}) {
+    this.comparator =
+      typeof options.comparator === "function"
+        ? options.comparator
+        : (a, b) => (a || 0) - (b || 0);
+    this._heap = Array.isArray(options.initialValues) ? options.initialValues.slice() : [];
+    this.length = this._heap.length;
+    if (this._heap.length > 1) {
+      this._heapify();
+    }
+  }
+
+  queue(value) {
+    this._heap.push(value);
+    this._siftUp(this._heap.length - 1);
+    this.length = this._heap.length;
+  }
+
+  dequeue() {
+    if (this._heap.length === 0) return undefined;
+    const top = this._heap[0];
+    const last = this._heap.pop();
+    if (this._heap.length > 0) {
+      this._heap[0] = last;
+      this._siftDown(0);
+    }
+    this.length = this._heap.length;
+    return top;
+  }
+
+  peek() {
+    return this._heap[0];
+  }
+
+  clear() {
+    this._heap.length = 0;
+    this.length = 0;
+  }
+
+  _heapify() {
+    for (let i = Math.floor((this._heap.length - 2) / 2); i >= 0; i--) {
+      this._siftDown(i);
+    }
+  }
+
+  _siftUp(index) {
+    while (index > 0) {
+      const parentIndex = Math.floor((index - 1) / 2);
+      if (this.comparator(this._heap[index], this._heap[parentIndex]) >= 0) {
+        break;
+      }
+      [this._heap[index], this._heap[parentIndex]] = [this._heap[parentIndex], this._heap[index]];
+      index = parentIndex;
+    }
+  }
+
+  _siftDown(index) {
+    const length = this._heap.length;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let smallest = index;
+
+      if (left < length && this.comparator(this._heap[left], this._heap[smallest]) < 0) {
+        smallest = left;
+      }
+      if (right < length && this.comparator(this._heap[right], this._heap[smallest]) < 0) {
+        smallest = right;
+      }
+      if (smallest === index) {
+        break;
+      }
+      [this._heap[index], this._heap[smallest]] = [this._heap[smallest], this._heap[index]];
+      index = smallest;
+    }
+  }
+}
+
+function createPriorityQueue(comparator) {
+  return new BinaryMinHeapPriorityQueue({ comparator });
+}
+
 function setup() {
   createCanvas(mapSize, mapSize);
 
@@ -727,9 +810,7 @@ function findAndAssignExtraCities(numExtraCities) {
 
 function generateTerritories() {
   territories = Array.from(Array(width), () => new Array(height).fill(null));
-  let queue = new PriorityQueue({
-    comparator: (a, b) => a.score - b.score, // Min-heap, lowest score first
-  });
+  let queue = createPriorityQueue((a, b) => a.score - b.score); // Min-heap, lowest score first
 
   let cityToGroup = new Map();
   cityGroups.forEach((group, groupIndex) => {
@@ -1885,9 +1966,7 @@ function findClosestCitiesBetweenGroups(groupA, groupB) {
 }
 
 function drawRiver(startX, startY, endX, endY, maxDistanceAffected = 2) {
-  let queue = new PriorityQueue({
-    comparator: (a, b) => a.score - b.score, // Min-heap, lowest score first
-  });
+  let queue = createPriorityQueue((a, b) => a.score - b.score); // Min-heap, lowest score first
 
   let visited = new Set();
 
