@@ -415,8 +415,8 @@ function doMapGeneration() {
       let col = isBorder
         ? color(1)
         : current
-        ? color(50, 50, 50)
-        : color(32, 159, 201);
+          ? color(50, 50, 50)
+          : color(32, 159, 201);
       noiseCanvas.set(x, y, col);
       uniqueTerritoryMap.set(x, y, col);
     }
@@ -842,7 +842,7 @@ function generateTerritories() {
               // Create a unique key for the connection, ensuring consistent ordering
               let connectionKey =
                 city.x < connectedCity.x ||
-                (city.x === connectedCity.x && city.y < connectedCity.y)
+                  (city.x === connectedCity.x && city.y < connectedCity.y)
                   ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
                   : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
 
@@ -948,7 +948,7 @@ function generateWaterTerritories() {
               // Ensure unique ordering
               let connectionKey =
                 city.x < connectedCity.x ||
-                (city.x === connectedCity.x && city.y < connectedCity.y)
+                  (city.x === connectedCity.x && city.y < connectedCity.y)
                   ? `${city.x},${city.y}-${connectedCity.x},${connectedCity.y}`
                   : `${connectedCity.x},${connectedCity.y}-${city.x},${city.y}`;
 
@@ -971,7 +971,7 @@ function generateWaterTerritories() {
               // Ensure unique ordering
               let connectionKey =
                 city.x < landCity.x ||
-                (city.x === landCity.x && city.y < landCity.y)
+                  (city.x === landCity.x && city.y < landCity.y)
                   ? `${city.x},${city.y}-${landCity.x},${landCity.y}`
                   : `${landCity.x},${landCity.y}-${city.x},${city.y}`;
 
@@ -1329,14 +1329,14 @@ function generateSupplyCenters() {
         }
       }
       // sometimes ignore and assign randomly
-      if (random([false, false])){
+      if (random([false, false])) {
         bestCity = shuffle(ungroupedCities)[0];
-      } 
-        if (bestCity) {
-          selectedUngrouped.push(bestCity);
-          supplyCenters.push(bestCity);
-          addedThisRound = true;
-        }
+      }
+      if (bestCity) {
+        selectedUngrouped.push(bestCity);
+        supplyCenters.push(bestCity);
+        addedThisRound = true;
+      }
       if (selectedUngrouped.length >= numToSelect) break; // Stop if we hit the target
     }
 
@@ -2091,9 +2091,9 @@ function getWaterCityNames() {
     for (let connection of landWaterCityConnections) {
       if (
         JSON.stringify(connection[0]) ===
-          JSON.stringify([waterCity.x, waterCity.y]) ||
+        JSON.stringify([waterCity.x, waterCity.y]) ||
         JSON.stringify(connection[1]) ===
-          JSON.stringify([waterCity.x, waterCity.y])
+        JSON.stringify([waterCity.x, waterCity.y])
       ) {
         borderingLand = true;
         break;

@@ -6,7 +6,7 @@ const diplomacyCountries = [
   ["Engl", "and"],
   ["Turk", "ey"],
   ["It", "aly"],
-  
+
 ]
 
 function getRandomCountryName() {
@@ -27,7 +27,7 @@ const diplomacyLandRegions = [
   ["Belg", "ium"],
   ["R", "uhr"],
   ["Holl", "and"],
-  ["Ki", "el"], 
+  ["Ki", "el"],
   ["Berl", "in"],
   ["Mun", "ich"],
   ["Pruss", "ia"],
