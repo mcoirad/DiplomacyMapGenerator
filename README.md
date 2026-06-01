@@ -9,7 +9,7 @@ Random Map Generation for Diplomacy Board Game
 * WebDip compatible variant exporter
 * Map sizes as big as your computer can handle
 
-Demo: [Diplomacy Map ProcGen by mcoirad -p5.js Web Editor](https://editor.p5js.org/mcoirad/full/NxyGxcgZK   )
+Demo: [Diplomacy Map ProcGen by mcoirad -p5.js Web Editor](https://editor.p5js.org/mcoirad/full/nzCdQVbmY )
 
 
 ![Randomly Generated Map for Diplomacy Board Game](./example.png)

@@ -1418,16 +1418,28 @@ function generateSupplyCenters() {
     if (!addedThisRound) break; // Stop if no more valid cities were found
   }
 
-  // Phase 2: farthestNearest from all existing supply centers
+  // Phase 2: farthestNearest from already placed neutral supply centers
   while (selectedUngrouped.length < numCurrentLogic + numFarthestNearest) {
     let bestCity = null;
     let bestMinDist = -1;
+
+    // If no neutral SC has been placed yet, bootstrap with a random ungrouped city.
+    if (selectedUngrouped.length === 0) {
+      let remainingUngrouped = ungroupedCities.filter(
+        (city) => !selectedUngrouped.includes(city)
+      );
+      if (remainingUngrouped.length === 0) break;
+      bestCity = random(remainingUngrouped);
+      selectedUngrouped.push(bestCity);
+      supplyCenters.push(bestCity);
+      continue;
+    }
 
     for (let city of ungroupedCities) {
       if (selectedUngrouped.includes(city)) continue;
 
       let minDistToSC = Infinity;
-      for (let sc of supplyCenters) {
+      for (let sc of selectedUngrouped) {
         let d = dist(city.x, city.y, sc.x, sc.y);
         if (d < minDistToSC) minDistToSC = d;
       }
