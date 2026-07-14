@@ -60,6 +60,26 @@ let neutralCurrentLogicRatio = 0.5;
 
 let cityPlacementStrategy = "farthestNearest";
 
+const BORDER_COLOR = [1, 1, 1, 255];
+const LAND_COLOR = [50, 50, 50, 255];
+const WATER_COLOR = [32, 159, 201, 255];
+const TERRITORY_BORDER_COLOR = [128, 128, 128, 255];
+const LAND_WATER_BORDER_COLOR = [0, 0, 0, 255];
+
+function setGraphicsPixel(pixels, canvasWidth, x, y, rgba) {
+  let index = (x + y * canvasWidth) * 4;
+  pixels[index] = rgba[0];
+  pixels[index + 1] = rgba[1];
+  pixels[index + 2] = rgba[2];
+  pixels[index + 3] = rgba[3];
+}
+
+function colorToRgba(col) {
+  if (Array.isArray(col)) return col;
+  if (col && col.levels) return col.levels;
+  return [red(col), green(col), blue(col), alpha(col)];
+}
+
 class BinaryMinHeapPriorityQueue {
   constructor(options = {}) {
     this.comparator =
@@ -144,10 +164,13 @@ function createPriorityQueue(comparator) {
 }
 
 function setup() {
+  pixelDensity(1);
   createCanvas(mapSize, mapSize);
 
   noiseCanvas = createGraphics(mapSize, mapSize);
+  noiseCanvas.pixelDensity(1);
   uniqueTerritoryMap = createGraphics(mapSize, mapSize);
+  uniqueTerritoryMap.pixelDensity(1);
 
   let btn = createButton("Regenerate Map");
   btn.mousePressed(generateNoise);
@@ -388,9 +411,12 @@ function setup() {
 }
 
 function generateNoise() {
+  pixelDensity(1);
   createCanvas(parseInt(mapSizeInput.value()), parseInt(mapSizeInput.value()));
   noiseCanvas = createGraphics(width, height);
+  noiseCanvas.pixelDensity(1);
   uniqueTerritoryMap = createGraphics(width, height);
+  uniqueTerritoryMap.pixelDensity(1);
   clear();
   noiseSeedValue = noiseSeedInput.value();
   if (noiseSeedValue == "") {
@@ -402,7 +428,9 @@ function generateNoise() {
   noiseCanvas.loadPixels();
   uniqueTerritoryMap.loadPixels();
   noiseGrid = [];
+  heightMap = [];
 
+  // noprotect
   for (let x = 0; x < width; x++) {
     noiseGrid[x] = [];
     heightMap[x] = [];
@@ -479,6 +507,12 @@ function generateNoise() {
 
 function doMapGeneration() {
   //drawRiver(250, 120, 740, 600, 2);
+  noiseCanvas.loadPixels();
+  uniqueTerritoryMap.loadPixels();
+  let noisePixels = noiseCanvas.pixels;
+  let uniquePixels = uniqueTerritoryMap.pixels;
+
+  // noprotect
   for (let x = 0; x < width; x++) {
     for (let y = 0; y < height; y++) {
       let current = noiseGrid[x][y];
@@ -496,13 +530,9 @@ function doMapGeneration() {
         }
       }
 
-      let col = isBorder
-        ? color(1)
-        : current
-          ? color(50, 50, 50)
-          : color(32, 159, 201);
-      noiseCanvas.set(x, y, col);
-      uniqueTerritoryMap.set(x, y, col);
+      let col = isBorder ? BORDER_COLOR : current ? LAND_COLOR : WATER_COLOR;
+      setGraphicsPixel(noisePixels, width, x, y, col);
+      setGraphicsPixel(uniquePixels, width, x, y, col);
     }
   }
   //drawRiver(200, 200, 600, 600);
@@ -890,6 +920,12 @@ function generateTerritories() {
 
   noiseCanvas.loadPixels();
   uniqueTerritoryMap.loadPixels();
+  let noisePixels = noiseCanvas.pixels;
+  let uniquePixels = uniqueTerritoryMap.pixels;
+  let groupColorValues = groupColors.map(colorToRgba);
+  let territoryColorValues = {};
+
+  // noprotect
   for (let i = 0; i < landCells.length; i++) {
     let [x, y] = landCells[i];
     let cityIndex = territories[x][y];
@@ -899,10 +935,23 @@ function generateTerritories() {
 
     if (!territoryColors[cityIndex]) {
       territoryColors[cityIndex] = getUniqueColor();
+      territoryColorValues[cityIndex] = colorToRgba(territoryColors[cityIndex]);
     }
 
-    noiseCanvas.set(x, y, groupColors[groupIndex]);
-    uniqueTerritoryMap.set(x, y, territoryColors[cityIndex]);
+    setGraphicsPixel(
+      noisePixels,
+      width,
+      x,
+      y,
+      groupColorValues[groupIndex] || LAND_COLOR
+    );
+    setGraphicsPixel(
+      uniquePixels,
+      width,
+      x,
+      y,
+      territoryColorValues[cityIndex]
+    );
 
     for (let { dx, dy } of cardinalNeighbors) {
       let nx = x + dx;
@@ -937,8 +986,8 @@ function generateTerritories() {
     }
 
     if (isBorder) {
-      noiseCanvas.set(x, y, color(128)); // Black for borders
-      uniqueTerritoryMap.set(x, y, color(128));
+      setGraphicsPixel(noisePixels, width, x, y, TERRITORY_BORDER_COLOR);
+      setGraphicsPixel(uniquePixels, width, x, y, TERRITORY_BORDER_COLOR);
     }
   }
   noiseCanvas.updatePixels();
@@ -960,8 +1009,6 @@ function generateWaterTerritories() {
   waterCityConnections = []; // Final list
   landWaterCityConnections = []; // Final list
 
-  let seaColor = color(32, 159, 201);
-
   for (let i = 0; i < waterCities.length; i++) {
     let city = waterCities[i];
     if (waterTerritories[city.x][city.y] === null) {
@@ -971,6 +1018,7 @@ function generateWaterTerritories() {
     }
   }
 
+  // noprotect
   while (queueIndex < queue.length) {
     let { x, y, cityIndex } = queue[queueIndex++];
     let neighbors = [
@@ -1000,7 +1048,10 @@ function generateWaterTerritories() {
 
   noiseCanvas.loadPixels();
   uniqueTerritoryMap.loadPixels();
+  let noisePixels = noiseCanvas.pixels;
+  let uniquePixels = uniqueTerritoryMap.pixels;
 
+  // noprotect
   for (let i = 0; i < waterCells.length; i++) {
     let [x, y] = waterCells[i];
     let cityIndex = waterTerritories[x][y];
@@ -1069,14 +1120,14 @@ function generateWaterTerritories() {
     }
 
     if (isWaterBorder) {
-      noiseCanvas.set(x, y, color(128)); // Gray for water-to-water borders
-      uniqueTerritoryMap.set(x, y, color(128));
+      setGraphicsPixel(noisePixels, width, x, y, TERRITORY_BORDER_COLOR);
+      setGraphicsPixel(uniquePixels, width, x, y, TERRITORY_BORDER_COLOR);
     } else if (isLandWaterBorder) {
-      noiseCanvas.set(x, y, color(0)); // Keep water-to-land borders black
-      uniqueTerritoryMap.set(x, y, color(0));
+      setGraphicsPixel(noisePixels, width, x, y, LAND_WATER_BORDER_COLOR);
+      setGraphicsPixel(uniquePixels, width, x, y, LAND_WATER_BORDER_COLOR);
     } else {
-      noiseCanvas.set(x, y, seaColor); // Water color
-      uniqueTerritoryMap.set(x, y, seaColor); // Water color
+      setGraphicsPixel(noisePixels, width, x, y, WATER_COLOR);
+      setGraphicsPixel(uniquePixels, width, x, y, WATER_COLOR);
     }
   }
   noiseCanvas.updatePixels();
