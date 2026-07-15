@@ -62,7 +62,7 @@ let cityPlacementStrategy = "farthestNearest";
 
 const BORDER_COLOR = [1, 1, 1, 255];
 const LAND_COLOR = [50, 50, 50, 255];
-const NEUTRAL_TERRITORY_COLOR = [255, 255, 255, 255];
+const NEUTRAL_TERRITORY_COLOR = [230, 230, 230, 255];
 const WATER_COLOR = [32, 159, 201, 255];
 const TERRITORY_BORDER_COLOR = [128, 128, 128, 255];
 const LAND_WATER_BORDER_COLOR = [0, 0, 0, 255];
